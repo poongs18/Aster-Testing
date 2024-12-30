@@ -13,12 +13,20 @@ jobs:
 
     - name: Set run details
       run: |
-        run_number=$(($GITHUB_RUN_NUMBER - 1)) # Adjust for run numbering
+        run_number=$((GITHUB_RUN_NUMBER)) # Directly use run number
         run_date=$(date +'%Y-%m-%d')
         run_time=$(TZ=Asia/Kolkata date +'%I:%M %p, %Z')
         echo "run_number=$run_number" >> $GITHUB_ENV
         echo "run_date=$run_date" >> $GITHUB_ENV
         echo "run_time=$run_time" >> $GITHUB_ENV
+
+    - name: Configure test parameters
+      run: |
+        # Define SLA and transaction labels
+        sla_limit=10
+        target_labels=("01_Launch" "02_About Us" "03_Global_Network" "04_Excellence" "05_Innovation" "06_Investors" "07_Media_Center" "08_Careers" "09_Contact Us")
+        echo "sla_limit=$sla_limit" >> $GITHUB_ENV
+        echo "target_labels=(${target_labels[@]})" >> $GITHUB_ENV
 
     - name: Run JMeter script in Docker
       run: |
@@ -31,22 +39,18 @@ jobs:
     - name: Parse JTL file and prepare results
       id: parse-results
       run: |
-        # Define the transactions to focus on
-        target_labels=("01_Launch" "02_About Us" "03_Global_Network" "04_Excellence" "05_Innovation" "06_Investors" "07_Media_Center" "08_Careers" "09_Contact Us")
-        
         total=0
         passed=0
         failed=0
         skipped=0
-        
+
         parsed_results="<table style='border-collapse: collapse; width: auto;'><tr style='background-color: yellow;'><th style='border: 1px solid black; padding: 8px;'>Transaction</th><th style='border: 1px solid black; padding: 8px;'>Response Time</th><th style='border: 1px solid black; padding: 8px;'>Status</th><th style='border: 1px solid black; padding: 8px;'>Response Code</th></tr>"
         error_table=""
         summary_message="Summary: All transactions met the response time SLA of 10 seconds, indicating optimal performance."
         overall_status="Successful"
+        failed_sla_transactions=""
 
         declare -A errors
-        sla_limit=10
-        failed_sla_transactions=""
 
         while IFS=, read -r timeStamp elapsed label responseCode responseMessage threadName dataType success failureMessage; do
           if [[ " ${target_labels[@]} " =~ " ${label} " ]] && [[ "$label" != "label" ]]; then
@@ -81,7 +85,7 @@ jobs:
         fi
 
         if [ -n "$failed_sla_transactions" ]; then
-          summary_message="Summary: Please note that the following transactions failed to meet the performance criteria with a response time of 10 seconds:<br>$failed_sla_transactions Immediate action is required to address the performance issues identified."
+          summary_message="Summary: The following transactions failed the SLA:<br>$failed_sla_transactions Immediate action is required."
         fi
 
         echo "parsed_results=$parsed_results" >> $GITHUB_ENV
@@ -110,7 +114,7 @@ jobs:
             <b>🌐 Environment:</b> Staging</p>
             
             <div style="display: flex; gap: 5px; justify-content: space-between; margin-bottom: 20px;">
-              <div style="background-color: #87CEEB; padding: 10px 20px; text-align: center; border-radius: 5px; width: 20%;">
+              <div style="background-color: #87CEEB; padding: 10px 20px; text-align: center; border-radius: 5px; width: 20%;"> 
                 <b style="font-size: 1.5em;">${{ env.total }}</b><br>Total
               </div>
               <div style="background-color: #90EE90; padding: 10px 20px; text-align: center; border-radius: 5px; width: 20%;">
@@ -127,10 +131,8 @@ jobs:
             <h3>📝 Result Table:</h3>
             ${{ env.parsed_results }}
 
-            {% if env.failed > 0 %}
-            <h3>🔍 Error Details:</h3>
+            <h3>🔍 Error Details (if any):</h3>
             ${{ env.error_table }}
-            {% endif %}
 
             <p><b>${{ env.summary_message }}</b></p>
 
