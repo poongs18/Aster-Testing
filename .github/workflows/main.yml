@@ -31,6 +31,7 @@ jobs:
     - name: Parse JTL file and prepare results
       id: parse-results
       run: |
+        # Define the transactions to focus on
         target_labels=("01_Launch" "02_About Us" "03_Global_Network" "04_Excellence" "05_Innovation" "06_Investors" "07_Media_Center" "08_Careers" "09_Contact Us")
         
         total=0
@@ -40,23 +41,30 @@ jobs:
         
         parsed_results="<table style='border-collapse: collapse; width: auto;'><tr style='background-color: yellow;'><th style='border: 1px solid black; padding: 8px;'>Transaction</th><th style='border: 1px solid black; padding: 8px;'>Response Time</th><th style='border: 1px solid black; padding: 8px;'>Status</th><th style='border: 1px solid black; padding: 8px;'>Response Code</th></tr>"
         error_table=""
+        summary_message="Summary: All transactions met the response time SLA of 10 seconds, indicating optimal performance."
         overall_status="Successful"
 
         declare -A errors
+        sla_limit=10
+        failed_sla_transactions=""
 
         while IFS=, read -r timeStamp elapsed label responseCode responseMessage threadName dataType success failureMessage; do
           if [[ " ${target_labels[@]} " =~ " ${label} " ]] && [[ "$label" != "label" ]]; then
             total=$((total+1))
+            response_time=$(printf "%.2f" $(bc <<< "scale=2; $elapsed / 1000"))
             if [ "$responseCode" == "200" ]; then
               result="<span style='color: green;'>✅ Pass</span>"
               passed=$((passed+1))
+              if (( $(bc <<< "$response_time > $sla_limit") )); then
+                failed_sla_transactions="$failed_sla_transactions* $label (Response Time: ${response_time} sec)<br>"
+                overall_status="Failure"
+              fi
             else
               result="<span style='color: red;'>❌ Fail</span>"
               failed=$((failed+1))
               overall_status="Failure"
               errors[$label]="$responseMessage"
             fi
-            response_time=$(printf "%.2f" $(bc <<< "scale=2; $elapsed / 1000"))
             parsed_results="$parsed_results<tr><td style='border: 1px solid black; padding: 8px;'>$label</td><td style='border: 1px solid black; padding: 8px;'>${response_time} sec</td><td style='border: 1px solid black; padding: 8px;'>$result</td><td style='border: 1px solid black; padding: 8px;'>$responseCode</td></tr>"
           fi
         done < Asterresults.jtl
@@ -65,16 +73,21 @@ jobs:
 
         # Build error table if there are failures
         if [ "$failed" -gt 0 ]; then
-          error_table="<h3>🔍 Error Details:</h3><table style='border-collapse: collapse; width: auto;'><tr style='background-color: #f4cccc;'><th style='border: 1px solid black; padding: 8px;'>Transaction</th><th style='border: 1px solid black; padding: 8px;'>Errors</th></tr>"
+          error_table="<table style='border-collapse: collapse; width: auto;'><tr style='background-color: #f4cccc;'><th style='border: 1px solid black; padding: 8px;'>Transaction</th><th style='border: 1px solid black; padding: 8px;'>Errors</th></tr>"
           for label in "${!errors[@]}"; do
             error_table="$error_table<tr><td style='border: 1px solid black; padding: 8px;'>$label</td><td style='border: 1px solid black; padding: 8px;'>${errors[$label]}</td></tr>"
           done
           error_table="$error_table</table>"
         fi
 
+        if [ -n "$failed_sla_transactions" ]; then
+          summary_message="Summary: Please note that the following transactions failed to meet the performance criteria with a response time of 10 seconds:<br>$failed_sla_transactions Immediate action is required to address the performance issues identified."
+        fi
+
         echo "parsed_results=$parsed_results" >> $GITHUB_ENV
         echo "error_table=$error_table" >> $GITHUB_ENV
         echo "overall_status=$overall_status" >> $GITHUB_ENV
+        echo "summary_message=$summary_message" >> $GITHUB_ENV
         echo "total=$total" >> $GITHUB_ENV
         echo "passed=$passed" >> $GITHUB_ENV
         echo "failed=$failed" >> $GITHUB_ENV
@@ -96,27 +109,32 @@ jobs:
             <b>🕒 Execution Time:</b> ${{ env.run_time }}<br>
             <b>🌐 Environment:</b> Staging</p>
             
-            <div style="display: flex; gap: 10px; justify-content: space-evenly; margin-bottom: 20px;">
-              <div style="background-color: #87CEEB; width: 100px; padding: 20px; text-align: center; border-radius: 5px;">
+            <div style="display: flex; gap: 5px; justify-content: space-between; margin-bottom: 20px;">
+              <div style="background-color: #87CEEB; padding: 10px 20px; text-align: center; border-radius: 5px; width: 20%;">
                 <b style="font-size: 1.5em;">${{ env.total }}</b><br>Total
               </div>
-              <div style="background-color: #90EE90; width: 100px; padding: 20px; text-align: center; border-radius: 5px;">
+              <div style="background-color: #90EE90; padding: 10px 20px; text-align: center; border-radius: 5px; width: 20%;">
                 <b style="font-size: 1.5em;">${{ env.passed }}</b><br>Passed
               </div>
-              <div style="background-color: #FFB6C1; width: 100px; padding: 20px; text-align: center; border-radius: 5px;">
+              <div style="background-color: #FFB6C1; padding: 10px 20px; text-align: center; border-radius: 5px; width: 20%;">
                 <b style="font-size: 1.5em;">${{ env.failed }}</b><br>Failed
               </div>
-              <div style="background-color: #FFEB99; width: 100px; padding: 20px; text-align: center; border-radius: 5px;">
+              <div style="background-color: #FFEB99; padding: 10px 20px; text-align: center; border-radius: 5px; width: 20%;">
                 <b style="font-size: 1.5em;">${{ env.skipped }}</b><br>Skipped
               </div>
             </div>
-            
+
             <h3>📝 Result Table:</h3>
             ${{ env.parsed_results }}
 
+            {% if env.failed > 0 %}
+            <h3>🔍 Error Details:</h3>
             ${{ env.error_table }}
+            {% endif %}
 
-            <p>Thanks,<br>QA Team<br>ThinkTime Technologies</p>
+            <p><b>${{ env.summary_message }}</b></p>
+
+            <p><br>Thanks,<br>QA Team<br><i>ThinkTime Technologies</i></p>
             <p><i>Note: This is an auto-generated email triggered by GitHub Actions.</i></p>
           </body>
           </html>
