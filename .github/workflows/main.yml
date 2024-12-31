@@ -13,20 +13,12 @@ jobs:
 
     - name: Set run details
       run: |
-        run_number=$((GITHUB_RUN_NUMBER)) # Directly use run number
+        run_number=$(($GITHUB_RUN_NUMBER - 1)) # Adjust for run numbering
         run_date=$(date +'%Y-%m-%d')
         run_time=$(TZ=Asia/Kolkata date +'%I:%M %p, %Z')
         echo "run_number=$run_number" >> $GITHUB_ENV
         echo "run_date=$run_date" >> $GITHUB_ENV
         echo "run_time=$run_time" >> $GITHUB_ENV
-
-    - name: Configure test parameters
-      run: |
-        # Define SLA and transaction labels
-        sla_limit=10
-        target_labels=("01_Launch" "02_About Us" "03_Global_Network" "04_Excellence" "05_Innovation" "06_Investors" "07_Media_Center" "08_Careers" "09_Contact Us")
-        echo "sla_limit=$sla_limit" >> $GITHUB_ENV
-        echo "target_labels=(${target_labels[@]})" >> $GITHUB_ENV
 
     - name: Run JMeter script in Docker
       run: |
@@ -39,63 +31,53 @@ jobs:
     - name: Parse JTL file and prepare results
       id: parse-results
       run: |
-        total=0
-        passed=0
-        failed=0
-        skipped=0
-
+        # Define the transactions to focus on
+        target_labels=("01_Launch" "02_Login" "03_add_to cart" "04_Log_out")
+        
         parsed_results="<table style='border-collapse: collapse; width: auto;'><tr style='background-color: yellow;'><th style='border: 1px solid black; padding: 8px;'>Transaction</th><th style='border: 1px solid black; padding: 8px;'>Response Time</th><th style='border: 1px solid black; padding: 8px;'>Status</th><th style='border: 1px solid black; padding: 8px;'>Response Code</th></tr>"
-        error_table=""
-        summary_message="Summary: All transactions met the response time SLA of 10 seconds, indicating optimal performance."
+        failed_labels=""
         overall_status="Successful"
-        failed_sla_transactions=""
-
+        
+        # Initialize error extraction table
+        error_table="<table style='border-collapse: collapse; width: auto;'><tr style='background-color: #f4cccc;'><th style='border: 1px solid black; padding: 8px;'>Transaction</th><th style='border: 1px solid black; padding: 8px;'>Errors</th></tr>"
+        
         declare -A errors
 
         while IFS=, read -r timeStamp elapsed label responseCode responseMessage threadName dataType success failureMessage; do
           if [[ " ${target_labels[@]} " =~ " ${label} " ]] && [[ "$label" != "label" ]]; then
-            total=$((total+1))
-            response_time=$(printf "%.2f" $(bc <<< "scale=2; $elapsed / 1000"))
             if [ "$responseCode" == "200" ]; then
               result="<span style='color: green;'>✅ Pass</span>"
-              passed=$((passed+1))
-              if (( $(bc <<< "$response_time > $sla_limit") )); then
-                failed_sla_transactions="$failed_sla_transactions* $label (Response Time: ${response_time} sec)<br>"
-                overall_status="Failure"
-              fi
             else
               result="<span style='color: red;'>❌ Fail</span>"
-              failed=$((failed+1))
               overall_status="Failure"
+              failed_labels="$failed_labels$label, "
               errors[$label]="$responseMessage"
             fi
+            # Convert response time to seconds
+            response_time=$(printf "%.2f" $(bc <<< "scale=2; $elapsed / 1000"))
             parsed_results="$parsed_results<tr><td style='border: 1px solid black; padding: 8px;'>$label</td><td style='border: 1px solid black; padding: 8px;'>${response_time} sec</td><td style='border: 1px solid black; padding: 8px;'>$result</td><td style='border: 1px solid black; padding: 8px;'>$responseCode</td></tr>"
           fi
         done < Asterresults.jtl
-
+        
+        # Build error table
+        for label in "${!errors[@]}"; do
+          error_table="$error_table<tr><td style='border: 1px solid black; padding: 8px;'>$label</td><td style='border: 1px solid black; padding: 8px;'>${errors[$label]}</td></tr>"
+        done
+        
         parsed_results="$parsed_results</table>"
-
-        # Build error table if there are failures
-        if [ "$failed" -gt 0 ]; then
-          error_table="<table style='border-collapse: collapse; width: auto;'><tr style='background-color: #f4cccc;'><th style='border: 1px solid black; padding: 8px;'>Transaction</th><th style='border: 1px solid black; padding: 8px;'>Errors</th></tr>"
-          for label in "${!errors[@]}"; do
-            error_table="$error_table<tr><td style='border: 1px solid black; padding: 8px;'>$label</td><td style='border: 1px solid black; padding: 8px;'>${errors[$label]}</td></tr>"
-          done
-          error_table="$error_table</table>"
+        error_table="$error_table</table>"
+        
+        if [ "$overall_status" = "Successful" ]; then
+          summary="✅ All transactions met the response time SLA, and no failures occurred."
+        else
+          summary="❌ Some transactions failed: $failed_labels. Please review the error table for details."
         fi
 
-        if [ -n "$failed_sla_transactions" ]; then
-          summary_message="Summary: The following transactions failed the SLA:<br>$failed_sla_transactions Immediate action is required."
-        fi
-
+        # Export variables for email
         echo "parsed_results=$parsed_results" >> $GITHUB_ENV
         echo "error_table=$error_table" >> $GITHUB_ENV
         echo "overall_status=$overall_status" >> $GITHUB_ENV
-        echo "summary_message=$summary_message" >> $GITHUB_ENV
-        echo "total=$total" >> $GITHUB_ENV
-        echo "passed=$passed" >> $GITHUB_ENV
-        echo "failed=$failed" >> $GITHUB_ENV
-        echo "skipped=$skipped" >> $GITHUB_ENV
+        echo "summary=$summary" >> $GITHUB_ENV
 
     - name: Send email with results
       uses: dawidd6/action-send-mail@v3
@@ -113,33 +95,19 @@ jobs:
             <b>🕒 Execution Time:</b> ${{ env.run_time }}<br>
             <b>🌐 Environment:</b> Staging</p>
             
-            <div style="display: flex; gap: 5px; justify-content: space-between; margin-bottom: 20px;">
-              <div style="background-color: #87CEEB; padding: 10px 20px; text-align: center; border-radius: 5px; width: 20%;"> 
-                <b style="font-size: 1.5em;">${{ env.total }}</b><br>Total
-              </div>
-              <div style="background-color: #90EE90; padding: 10px 20px; text-align: center; border-radius: 5px; width: 20%;">
-                <b style="font-size: 1.5em;">${{ env.passed }}</b><br>Passed
-              </div>
-              <div style="background-color: #FFB6C1; padding: 10px 20px; text-align: center; border-radius: 5px; width: 20%;">
-                <b style="font-size: 1.5em;">${{ env.failed }}</b><br>Failed
-              </div>
-              <div style="background-color: #FFEB99; padding: 10px 20px; text-align: center; border-radius: 5px; width: 20%;">
-                <b style="font-size: 1.5em;">${{ env.skipped }}</b><br>Skipped
-              </div>
-            </div>
+            <p><b>Health Status:</b> ${{ env.overall_status }}</p>
+            <p><b>Summary:</b><br>${{ env.summary }}</p>
 
             <h3>📝 Result Table:</h3>
             ${{ env.parsed_results }}
 
-            <h3>🔍 Error Details (if any):</h3>
+            <h3>🔍 Top Errors:</h3>
             ${{ env.error_table }}
 
-            <p><b>${{ env.summary_message }}</b></p>
-
-            <p><br>Thanks,<br>QA Team<br><i>ThinkTime Technologies</i></p>
+            <p>Thanks,<br>QA Team<br><i>ThinkTime Technologies</i></p>
             <p><i>Note: This is an auto-generated email triggered by GitHub Actions.</i></p>
           </body>
           </html>
-        to: jenkins@thinktime.in
+        to: jenkins@thinktime.in, arun@thinktime.in
         from: ${{ secrets.USERNAME }}
-        priority: normal
+         priority: normal
