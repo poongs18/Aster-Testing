@@ -108,6 +108,6 @@ jobs:
             <p><i>Note: This is an auto-generated email triggered by GitHub Actions.</i></p>
           </body>
           </html>
-        to: jenkins@thinktime.in, arun@thinktime.in
+        to: jenkins@thinktime.in
         from: ${{ secrets.USERNAME }}
          priority: normal
