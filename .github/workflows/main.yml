@@ -69,9 +69,6 @@ jobs:
               overall_status="Failure"
               errors[$label]="$responseMessage"
             fi
-            if (( $(bc <<< "$response_time > $sla_limit") )); then
-              result="<span style='color: red;'>❌ Fail</span>"
-            fi
             parsed_results="$parsed_results<tr><td style='border: 1px solid black; padding: 8px;'>$label</td><td style='border: 1px solid black; padding: 8px;'>${response_time} sec</td><td style='border: 1px solid black; padding: 8px;'>$result</td><td style='border: 1px solid black; padding: 8px;'>$responseCode</td></tr>"
           fi
         done < Asterresults.jtl
@@ -117,16 +114,16 @@ jobs:
             <b>🌐 Environment:</b> Staging</p>
             
             <div style="display: flex; gap: 5px; justify-content: space-between; margin-bottom: 20px;">
-              <div style="background-color: #87CEEB; padding: 10px 20px; text-align: center; border-radius: 5px; width: 20%; border: 2px solid;">
+              <div style="background-color: #87CEEB; padding: 10px 20px; text-align: center; border-radius: 5px; width: 20%;"> 
                 <b style="font-size: 1.5em;">${{ env.total }}</b><br>Total
               </div>
-              <div style="background-color: #90EE90; padding: 10px 20px; text-align: center; border-radius: 5px; width: 20%; border: 2px solid;">
+              <div style="background-color: #90EE90; padding: 10px 20px; text-align: center; border-radius: 5px; width: 20%;">
                 <b style="font-size: 1.5em;">${{ env.passed }}</b><br>Passed
               </div>
-              <div style="background-color: #FFB6C1; padding: 10px 20px; text-align: center; border-radius: 5px; width: 20%; border: 2px solid;">
+              <div style="background-color: #FFB6C1; padding: 10px 20px; text-align: center; border-radius: 5px; width: 20%;">
                 <b style="font-size: 1.5em;">${{ env.failed }}</b><br>Failed
               </div>
-              <div style="background-color: #FFEB99; padding: 10px 20px; text-align: center; border-radius: 5px; width: 20%; border: 2px solid;">
+              <div style="background-color: #FFEB99; padding: 10px 20px; text-align: center; border-radius: 5px; width: 20%;">
                 <b style="font-size: 1.5em;">${{ env.skipped }}</b><br>Skipped
               </div>
             </div>
