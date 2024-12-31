@@ -1,0 +1,113 @@
+name: Run Aster Script and Send Results
+
+on:
+  workflow_dispatch:  # Allows manual triggering of the workflow
+
+jobs:
+  run-jmeter:
+    runs-on: ubuntu
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set run details
+      run: |
+        run_number=$(($GITHUB_RUN_NUMBER - 1)) # Adjust for run numbering
+        run_date=$(date +'%Y-%m-%d')
+        run_time=$(TZ=Asia/Kolkata date +'%I:%M %p, %Z')
+        echo "run_number=$run_number" >> $GITHUB_ENV
+        echo "run_date=$run_date" >> $GITHUB_ENV
+        echo "run_time=$run_time" >> $GITHUB_ENV
+
+    - name: Run JMeter script in Docker
+      run: |
+        docker run --rm \
+          -v ${{ github.workspace }}:/jmeter \
+          -w /jmeter \
+          justb4/jmeter \
+          -n -t Aster.jmx -l Asterresults.jtl
+
+    - name: Parse JTL file and prepare results
+      id: parse-results
+      run: |
+        # Define the transactions to focus on
+        target_labels=("01_Launch" "02_About Us" "03_Global_Network" "04_Excellence" "05_Innovation" "06_Investors" "07_Media_Center" "08_Careers" "09_Contact Us")
+        
+        parsed_results="<table style='border-collapse: collapse; width: auto;'><tr style='background-color: yellow;'><th style='border: 1px solid black; padding: 8px;'>Transaction</th><th style='border: 1px solid black; padding: 8px;'>Response Time</th><th style='border: 1px solid black; padding: 8px;'>Status</th><th style='border: 1px solid black; padding: 8px;'>Response Code</th></tr>"
+        failed_labels=""
+        overall_status="Successful"
+        
+        # Initialize error extraction table
+        error_table="<table style='border-collapse: collapse; width: auto;'><tr style='background-color: #f4cccc;'><th style='border: 1px solid black; padding: 8px;'>Transaction</th><th style='border: 1px solid black; padding: 8px;'>Errors</th></tr>"
+        
+        declare -A errors
+
+        while IFS=, read -r timeStamp elapsed label responseCode responseMessage threadName dataType success failureMessage; do
+          if [[ " ${target_labels[@]} " =~ " ${label} " ]] && [[ "$label" != "label" ]]; then
+            if [ "$responseCode" == "200" ]; then
+              result="<span style='color: green;'>✅ Pass</span>"
+            else
+              result="<span style='color: red;'>❌ Fail</span>"
+              overall_status="Failure"
+              failed_labels="$failed_labels$label, "
+              errors[$label]="$responseMessage"
+            fi
+            # Convert response time to seconds
+            response_time=$(printf "%.2f" $(bc <<< "scale=2; $elapsed / 1000"))
+            parsed_results="$parsed_results<tr><td style='border: 1px solid black; padding: 8px;'>$label</td><td style='border: 1px solid black; padding: 8px;'>${response_time} sec</td><td style='border: 1px solid black; padding: 8px;'>$result</td><td style='border: 1px solid black; padding: 8px;'>$responseCode</td></tr>"
+          fi
+        done < Asterresults.jtl
+        
+        # Build error table
+        for label in "${!errors[@]}"; do
+          error_table="$error_table<tr><td style='border: 1px solid black; padding: 8px;'>$label</td><td style='border: 1px solid black; padding: 8px;'>${errors[$label]}</td></tr>"
+        done
+        
+        parsed_results="$parsed_results</table>"
+        error_table="$error_table</table>"
+        
+        if [ "$overall_status" = "Successful" ]; then
+          summary="✅ All transactions met the response time SLA, and no failures occurred."
+        else
+          summary="❌ Some transactions failed: $failed_labels. Please review the error table for details."
+        fi
+
+        # Export variables for email
+        echo "parsed_results=$parsed_results" >> $GITHUB_ENV
+        echo "error_table=$error_table" >> $GITHUB_ENV
+        echo "overall_status=$overall_status" >> $GITHUB_ENV
+        echo "summary=$summary" >> $GITHUB_ENV
+
+    - name: Send email with results
+      uses: dawidd6/action-send-mail@v3
+      with:
+        server_address: smtp.hostinger.com
+        server_port: 465
+        username: ${{ secrets.USERNAME }}
+        password: ${{ secrets.PASSWORD }}
+        subject: "🚀 Performance Report #${{ env.run_number }} - ${{ env.run_date }} - Status: ${{ env.overall_status }}"
+        html_body: |
+          <html>
+          <body style="font-family: Calibri, sans-serif;">
+            <h2 style="color: #4CAF50;">🚀 Performance Test Execution Report</h2>
+            <p><b>📅 Date:</b> ${{ env.run_date }}<br>
+            <b>🕒 Execution Time:</b> ${{ env.run_time }}<br>
+            <b>🌐 Environment:</b> Staging</p>
+            
+            <p><b>Health Status:</b> ${{ env.overall_status }}</p>
+            <p><b>Summary:</b><br>${{ env.summary }}</p>
+
+            <h3>📝 Result Table:</h3>
+            ${{ env.parsed_results }}
+
+            <h3>🔍 Top Errors:</h3>
+            ${{ env.error_table }}
+
+            <p>Thanks,<br>QA Team<br><i>ThinkTime Technologies</i></p>
+            <p><i>Note: This is an auto-generated email triggered by GitHub Actions.</i></p>
+          </body>
+          </html>
+        to: jenkins@thinktime.in
+        from: ${{ secrets.USERNAME }}
+        priority: normal
