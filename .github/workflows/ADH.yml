@@ -1,25 +1,27 @@
 name: Run Aster Script and Send Results
 
 on:
+  schedule:
+    - cron: '30 4 * * *'  # Runs at 10 AM IST (UTC+5:30)
   workflow_dispatch:  # Allows manual triggering of the workflow
 
 jobs:
   run-jmeter:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
 
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
-
+      
     - name: Set run details
       run: |
-        run_number=$(($GITHUB_RUN_NUMBER - 1)) # Adjust for run numbering
+        run_number=$(($GITHUB_RUN_NUMBER - 1)) # Subtract 1 as GITHUB_RUN_NUMBER starts from 1
         run_date=$(date +'%Y-%m-%d')
-        run_time=$(TZ=Asia/Kolkata date +'%I:%M %p, %Z')
+        run_time=$(TZ=Asia/Kolkata date +'%I:%M %p, %Z') # Get Indian Standard Time (IST)
         echo "run_number=$run_number" >> $GITHUB_ENV
         echo "run_date=$run_date" >> $GITHUB_ENV
         echo "run_time=$run_time" >> $GITHUB_ENV
-
+      
     - name: Run JMeter script in Docker
       run: |
         docker run --rm \
